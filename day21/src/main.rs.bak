@@ -1,0 +1,368 @@
+#![feature(iterator_step_by)]
+
+#[macro_use]
+extern crate failure;
+#[macro_use]
+extern crate nom;
+
+use failure::Error;
+use std::str::FromStr;
+use std::fmt;
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Pixel {
+    On,
+    Off,
+}
+
+impl fmt::Display for Pixel {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            &Pixel::On => write!(f, "#"),
+            &Pixel::Off => write!(f, "."),
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Clone)]
+enum GridSection {
+    TwoByTwo([[Pixel; 2]; 2]),
+    ThreeByThree([[Pixel; 3]; 3]),
+    FourByFour([[Pixel; 4]; 4]),
+    SixBySix([[Pixel; 6]; 6]),
+}
+
+impl fmt::Display for GridSection {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use GridSection::*;
+        match self {
+            &TwoByTwo(g) => for l in g.iter() {
+                for p in l.iter() {
+                    p.fmt(f)?
+                }
+                write!(f, "\n")?
+            },
+            &ThreeByThree(g) => for l in g.iter() {
+                for p in l.iter() {
+                    p.fmt(f)?
+                }
+                write!(f, "\n")?
+            },
+            &FourByFour(g) => for l in g.iter() {
+                for p in l.iter() {
+                    p.fmt(f)?
+                }
+                write!(f, "\n")?
+            },
+            &SixBySix(g) => for l in g.iter() {
+                for p in l.iter() {
+                    p.fmt(f)?
+                }
+                write!(f, "\n")?
+            },
+        }
+        Ok(())
+    }
+}
+
+enum Transform {
+    Rotate,
+    FlipVertical,
+    FlipHorizontal,
+}
+
+impl GridSection {
+    fn len(&self) -> usize {
+        use GridSection::*;
+        match self {
+            &TwoByTwo(_) => 2,
+            &ThreeByThree(_) => 3,
+            &FourByFour(_) => 4,
+            &SixBySix(_) => 6,
+        }
+    }
+
+    fn split(self) -> Vec<Vec<Self>> {
+        match self {
+            GridSection::FourByFour(g) => {
+                let ul = GridSection::TwoByTwo([[g[0][0], g[0][1]], [g[1][0], g[1][1]]]);
+                let ur = GridSection::TwoByTwo([[g[0][2], g[0][3]], [g[1][2], g[1][3]]]);
+                let bl = GridSection::TwoByTwo([[g[2][0], g[2][1]], [g[3][0], g[3][1]]]);
+                let br = GridSection::TwoByTwo([[g[2][2], g[2][3]], [g[3][2], g[3][3]]]);
+                vec![vec![ul, ur], vec![bl, br]]
+            }
+            GridSection::SixBySix(g) => {
+                let g0 = GridSection::TwoByTwo([[g[0][0], g[0][1]], [g[1][0], g[1][1]]]);
+                let g1 = GridSection::TwoByTwo([[g[0][2], g[0][3]], [g[1][2], g[1][3]]]);
+                let g2 = GridSection::TwoByTwo([[g[0][4], g[0][5]], [g[1][5], g[1][5]]]);
+                let g3 = GridSection::TwoByTwo([[g[2][0], g[2][1]], [g[3][2], g[3][1]]]);
+                let g4 = GridSection::TwoByTwo([[g[2][2], g[2][3]], [g[3][2], g[3][3]]]);
+                let g5 = GridSection::TwoByTwo([[g[2][4], g[2][5]], [g[3][2], g[3][5]]]);
+                let g6 = GridSection::TwoByTwo([[g[4][0], g[4][1]], [g[5][2], g[5][1]]]);
+                let g7 = GridSection::TwoByTwo([[g[4][2], g[4][3]], [g[5][2], g[5][3]]]);
+                let g8 = GridSection::TwoByTwo([[g[4][4], g[4][5]], [g[5][2], g[5][5]]]);
+                vec![vec![g0, g1, g2], vec![g3, g4, g5], vec![g6, g7, g8]]
+            }
+            _ => unimplemented!(),
+        }
+    }
+
+    fn combine(&self, ur: &Self, bl: &Self, br: &Self) -> Self {
+        match (self, ur, bl, br) {
+            (
+                &GridSection::ThreeByThree(ul),
+                &GridSection::ThreeByThree(ur),
+                &GridSection::ThreeByThree(bl),
+                &GridSection::ThreeByThree(br),
+            ) => GridSection::SixBySix([
+                [ul[0][0], ul[0][1], ul[0][2], ur[0][0], ur[0][1], ur[0][2]],
+                [ul[1][0], ul[1][1], ul[1][2], ur[1][0], ur[1][1], ur[1][2]],
+                [ul[2][0], ul[2][1], ul[2][2], ur[2][0], ur[2][1], ur[2][2]],
+                [bl[0][0], bl[0][1], bl[0][2], br[0][0], br[0][1], br[0][2]],
+                [bl[1][0], bl[1][1], bl[1][2], br[1][0], br[1][1], br[1][2]],
+                [bl[2][0], bl[2][1], bl[2][2], br[2][0], br[2][1], br[2][2]],
+            ]),
+            _ => unimplemented!(),
+        }
+    }
+
+    fn transform(&self, transform: Transform) -> GridSection {
+        use Transform::*;
+        match self {
+            &GridSection::TwoByTwo(g) => match transform {
+                Rotate => GridSection::TwoByTwo([[g[1][0], g[0][0]], [g[1][1], g[0][1]]]),
+                FlipVertical => GridSection::TwoByTwo([[g[1][0], g[1][1]], [g[0][0], g[0][1]]]),
+                FlipHorizontal => GridSection::TwoByTwo([[g[0][1], g[0][0]], [g[1][1], g[1][0]]]),
+            },
+            &GridSection::ThreeByThree(g) => match transform {
+                Rotate => GridSection::ThreeByThree([
+                    [g[2][0], g[1][0], g[0][0]],
+                    [g[2][1], g[1][1], g[0][1]],
+                    [g[2][2], g[1][2], g[0][2]],
+                ]),
+                FlipVertical => GridSection::ThreeByThree([
+                    [g[2][0], g[2][1], g[2][2]],
+                    [g[1][0], g[1][1], g[1][2]],
+                    [g[0][0], g[0][1], g[0][2]],
+                ]),
+                FlipHorizontal => GridSection::ThreeByThree([
+                    [g[0][2], g[0][1], g[0][0]],
+                    [g[1][2], g[1][1], g[1][0]],
+                    [g[2][2], g[2][1], g[2][0]],
+                ]),
+            },
+            _ => unimplemented!(),
+        }
+    }
+
+    fn count_on(&self) -> usize {
+        use GridSection::*;
+        match self {
+            &TwoByTwo(g) => g.iter()
+                .flat_map(|l| l.iter())
+                .filter(|p| **p == Pixel::On)
+                .count(),
+            &ThreeByThree(g) => g.iter()
+                .flat_map(|l| l.iter())
+                .filter(|p| **p == Pixel::On)
+                .count(),
+            &FourByFour(g) => g.iter()
+                .flat_map(|l| l.iter())
+                .filter(|p| **p == Pixel::On)
+                .count(),
+            &SixBySix(g) => g.iter()
+                .flat_map(|l| l.iter())
+                .filter(|p| **p == Pixel::On)
+                .count(),
+        }
+    }
+}
+
+#[derive(Debug)]
+struct Grid(Vec<Vec<GridSection>>);
+
+impl Grid {
+    fn new() -> Self {
+        Grid(vec![
+            vec![
+                GridSection::ThreeByThree([
+                    [Pixel::Off, Pixel::On, Pixel::Off],
+                    [Pixel::Off, Pixel::Off, Pixel::On],
+                    [Pixel::On, Pixel::On, Pixel::On],
+                ]),
+            ],
+        ])
+    }
+}
+
+impl Grid {
+    fn run_iteration(&mut self, rules: &Rules) -> Result<(), Error> {
+        // First apply enhancement.
+        let mut grid = self.0
+            .iter()
+            .map(|l| {
+                l.iter()
+                    .map(|g| rules.apply(g))
+                    .collect::<Result<Vec<_>, _>>()
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        // Next combine squares as necessary.
+        if grid[0].iter().map(GridSection::len).sum::<usize>() % 6 == 0 {
+            let len = grid.len();
+            grid = (0..len)
+                .step_by(2)
+                .map(|i| {
+                    (0..len)
+                        .step_by(2)
+                        .map(|j| {
+                            grid[i][j].combine(
+                                &grid[i][j + 1],
+                                &grid[i + 1][j],
+                                &grid[i + 1][j + 1],
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .collect::<Vec<_>>();
+        }
+        // Split
+        let split: Vec<Vec<Vec<Vec<GridSection>>>> = grid.into_iter()
+            .map(|l| l.into_iter().map(GridSection::split).collect())
+            .collect();
+
+        let len = split.len();
+        let new_grid: Vec<Vec<Vec<GridSection>>> = (0..len).map(|i| {
+            (0..len).flat_map(|j| split[i][j].iter().cloned()).collect()
+        }).collect();
+
+        let new_grid: Vec<Vec<GridSection>> = (0..len).map(|i| {
+        });
+
+        /*
+        println!("{:?}", new_grid);
+        self.0 = new_grid;
+        */
+        Ok(())
+    }
+}
+
+struct Rule(GridSection, GridSection);
+
+impl Rule {
+    fn try_apply(&self, grid_section: &GridSection) -> Option<GridSection> {
+        use Transform::*;
+        let &Rule(ref from, ref to) = self;
+        if from == grid_section || from.transform(Rotate) == *grid_section
+            || from.transform(Rotate).transform(Rotate) == *grid_section
+            || from.transform(Rotate).transform(Rotate).transform(Rotate) == *grid_section
+            || from.transform(FlipVertical) == *grid_section
+            || from.transform(Rotate).transform(FlipVertical) == *grid_section
+            || from.transform(FlipHorizontal) == *grid_section
+            || from.transform(Rotate).transform(FlipHorizontal) == *grid_section
+        {
+            println!("matching:\n{}from:\n{}to:\n{}", grid_section, from, to);
+            Some(to.clone())
+        } else {
+            None
+        }
+    }
+}
+
+struct Rules {
+    two_by_two: Vec<Rule>,
+    three_by_three: Vec<Rule>,
+}
+
+impl Rules {
+    fn apply(&self, grid_section: &GridSection) -> Result<GridSection, Error> {
+        match grid_section {
+            &GridSection::TwoByTwo(_) => for rule in self.two_by_two.iter() {
+                if let Some(new_grid_section) = rule.try_apply(&grid_section) {
+                    return Ok(new_grid_section);
+                }
+            },
+            &GridSection::ThreeByThree(_) => for rule in self.three_by_three.iter() {
+                if let Some(new_grid_section) = rule.try_apply(&grid_section) {
+                    return Ok(new_grid_section);
+                }
+            },
+            _ => bail!("Invalid input."),
+        }
+        Err(format_err!("No rule matches."))
+    }
+}
+
+impl FromStr for Rules {
+    type Err = Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        named!(pixel<&str, Pixel>,
+               alt!(do_parse!(tag!("#") >> (Pixel::On)) |
+                    do_parse!(tag!(".") >> (Pixel::Off))));
+
+        named!(two <&str, [Pixel; 2]>,
+               do_parse!(p0: pixel >> p1: pixel >> ([p0, p1])));
+
+        named!(three<&str, [Pixel; 3]>,
+               do_parse!(p0: pixel >> p1: pixel >> p2: pixel >> ([p0, p1, p2])));
+
+        named!(four<&str, [Pixel; 4]>,
+               do_parse!(p0: pixel >> p1: pixel >> p2: pixel >> p3: pixel>> ([p0, p1, p2, p3])));
+
+        named!(grid_secion_2<&str, GridSection>,
+               do_parse!(l0: two >> tag!("/") >> l1: two >> (GridSection::TwoByTwo([l0, l1]))));
+
+        named!(grid_secion_3<&str, GridSection>,
+               do_parse!(l0: three >> tag!("/") >> l1: three >> tag!("/") >> l2: three >>
+                         (GridSection::ThreeByThree([l0, l1, l2]))));
+
+        named!(grid_secion_4<&str, GridSection>,
+               do_parse!(l0: four >> tag!("/") >> l1: four >> tag!("/") >>
+                         l2: four >> tag!("/") >> l3: four >>
+                         (GridSection::FourByFour([l0, l1, l2, l3]))));
+
+        named!(rule<&str, Rule>,
+               alt!(do_parse!(from: grid_secion_2 >> ws!(tag!("=>")) >>
+                              to: grid_secion_3 >> (Rule(from, to))) |
+                    do_parse!(from: grid_secion_3 >> ws!(tag!("=>")) >>
+                              to: grid_secion_4 >> (Rule(from, to)))));
+
+        let (two_by_two, three_by_three) = s.split('\n')
+            .map(rule)
+            .map(nom::IResult::to_result)
+            .collect::<Result<Vec<Rule>, nom::ErrorKind>>()
+            .map_err(|e| format_err!("{}", e))?
+            .into_iter()
+            .partition(|&Rule(ref from, _)| {
+                if let &GridSection::TwoByTwo(_) = from {
+                    true
+                } else {
+                    false
+                }
+            });
+
+        Ok(Rules {
+            two_by_two: two_by_two,
+            three_by_three: three_by_three,
+        })
+    }
+}
+
+fn main() {
+    let input = include_str!("input.txt");
+    let input = input.trim();
+
+    let mut grid = Grid::new();
+    let rules: Rules = input.parse().expect("parse");
+    (0..5)
+        .map(|_| grid.run_iteration(&rules))
+        .collect::<Result<Vec<_>, Error>>()
+        .expect("iteration.");
+    let result: usize = grid.0
+        .iter()
+        .flat_map(|g| g.iter())
+        .map(GridSection::count_on)
+        .sum();
+    println!("Result 1: {}", result);
+}

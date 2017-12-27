@@ -1,0 +1,23 @@
+[[package]]
+name = "atoi"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+dependencies = [
+ "num-traits 0.1.41 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
+name = "day5"
+version = "0.1.0"
+dependencies = [
+ "atoi 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
+name = "num-traits"
+version = "0.1.41"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+
+[metadata]
+"checksum atoi 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)" = "c652b4c07a7a8d61393962dac8f9d34b65acb2cb6554123ef4de2b4dde66267d"
+"checksum num-traits 0.1.41 (registry+https://github.com/rust-lang/crates.io-index)" = "cacfcab5eb48250ee7d0c7896b51a2c5eec99c1feea5f32025635f5ae4b00070"

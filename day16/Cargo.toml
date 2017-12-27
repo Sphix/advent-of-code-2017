@@ -1,0 +1,9 @@
+[package]
+name = "day16"
+version = "0.1.0"
+authors = ["Suraj Malhotra"]
+
+[dependencies]
+failure = "*"
+lazy_static = "*"
+regex = "*"

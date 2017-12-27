@@ -1,0 +1,9 @@
+[package]
+name = "day12"
+version = "0.1.0"
+authors = ["Suraj Malhotra"]
+
+[dependencies]
+failure = "*"
+petgraph = "*"
+regex = "*"
