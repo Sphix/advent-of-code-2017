@@ -83,17 +83,17 @@ enum ProgramState {
 }
 
 #[derive(Clone)]
-struct Program {
+struct Core<'a> {
     registers: Registers,
-    imem: Vec<Instruction>,
+    imem: &'a [Instruction],
     pc: isize,
     state: ProgramState,
     send_queue: VecDeque<i64>,
 }
 
-impl Program {
-    fn new(imem: Vec<Instruction>, pid: i64) -> Program {
-        let mut p = Program {
+impl<'a> Core<'a> {
+    fn new(imem: &'a [Instruction], pid: i64) -> Core {
+        let mut p = Core {
             registers: HashMap::new(),
             imem: imem,
             pc: 0,
@@ -128,7 +128,7 @@ impl Program {
         }
     }
 
-    fn state<'a>(&'a self) -> &'a ProgramState {
+    fn state<'b>(&'b self) -> &'b ProgramState {
         &self.state
     }
 
@@ -177,46 +177,54 @@ impl Program {
     }
 }
 
-struct Cpu {
-    prog1: Program,
-    prog2: Program,
+struct Cpu<'a> {
+    core0: Core<'a>,
+    core1: Core<'a>,
 }
 
-impl Cpu {
-    fn new(imem: Vec<Instruction>) -> Cpu {
+impl<'a> Cpu<'a> {
+    fn new(imem: &'a [Instruction]) -> Cpu {
         Cpu {
-            prog1: Program::new(imem.clone(), 0),
-            prog2: Program::new(imem, 0),
+            core0: Core::new(imem, 0),
+            core1: Core::new(imem, 1),
         }
     }
 
-    fn run(&mut self) -> usize {
-        let mut count = 0;
-        while self.prog1.state() == &ProgramState::Runnable
-            || self.prog2.state() == &ProgramState::Runnable
+    fn run(&mut self) -> (usize, usize) {
+        let mut count0 = 0;
+        let mut count1 = 0;
+        while self.core0.state() != &ProgramState::Terminated
+            && self.core1.state() != &ProgramState::Terminated
         {
-            match self.prog1.state() {
-                &ProgramState::Runnable => self.prog1.run_cycle(),
+            let mut stuck = false;
+            match self.core0.state() {
+                &ProgramState::Runnable => self.core0.run_cycle(),
                 &ProgramState::Waiting(_) => {
-                    if let Some(val) = self.prog2.send() {
-                        count += 1;
-                        self.prog1.recieve(val);
+                    if let Some(val) = self.core1.send() {
+                        count1 += 1;
+                        self.core0.recieve(val);
+                    } else {
+                        stuck = true;
                     }
                 }
                 &ProgramState::Terminated => (),
             }
-            match self.prog2.state() {
-                &ProgramState::Runnable => self.prog2.run_cycle(),
+            match self.core1.state() {
+                &ProgramState::Runnable => self.core1.run_cycle(),
                 &ProgramState::Waiting(_) => {
-                    if let Some(val) = self.prog1.send() {
-                        self.prog2.recieve(val);
+                    if let Some(val) = self.core0.send() {
+                        count0 += 1;
+                        self.core1.recieve(val);
+                    } else if stuck {
+                        break;
                     }
                 }
                 &ProgramState::Terminated => (),
             }
         }
 
-        count + self.prog2.send_queue.len()
+        (count0 + self.core0.send_queue.len(),
+        count1 + self.core1.send_queue.len())
     }
 }
 
@@ -228,7 +236,7 @@ fn parse_input(input: &str) -> Result<Vec<Instruction>, Error> {
 }
 
 fn last_send(imem: Vec<Instruction>) -> Result<i64, Error> {
-    let mut program = Program::new(imem, 0);
+    let mut program = Core::new(&imem, 0);
     while program.state() == &ProgramState::Runnable {
         program.run_cycle();
     }
@@ -247,7 +255,7 @@ fn main() {
     let result = last_send(instructions.clone()).expect("fail");
     println!("Result 1: {}", result);
 
-    let mut cpu = Cpu::new(instructions);
+    let mut cpu = Cpu::new(&instructions);
     let result = cpu.run();
     println!("Result 2: {:?}", result);
 }
@@ -283,8 +291,8 @@ mod tests {
                      rcv c\n\
                      rcv d";
         let instructions = parse_input(&input).unwrap();
-        let mut cpu = Cpu::new(instructions);
-        assert_eq!(cpu.run(), 3);
+        let mut cpu = Cpu::new(&instructions);
+        assert_eq!(cpu.run(), (3, 3));
     }
 
     #[test]
@@ -300,7 +308,7 @@ mod tests {
                      set a 1\n\
                      jgz a -2";
         let instructions = parse_input(&input).unwrap();
-        let mut cpu = Cpu::new(instructions);
-        assert_eq!(cpu.run(), 1);
+        let mut cpu = Cpu::new(&instructions);
+        assert_eq!(cpu.run(), (1, 1));
     }
 }
